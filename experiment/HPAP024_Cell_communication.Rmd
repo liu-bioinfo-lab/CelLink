@@ -133,6 +133,48 @@ df.net <- df.net_expanded[df.net_expanded$receptor %in% valid_receptors, ]
 df.net <- as.data.frame(df.net) 
 ```
 
+```{r}
+ligand_expr_proportion <- as.data.frame(ligands_seurat@assays$RNA@counts > 0) %>%
+  rownames_to_column(var = "ligand") %>%
+  pivot_longer(
+    cols = -ligand,
+    names_to = "cell",
+    values_to = "expressed"
+  ) %>%
+  mutate(cell_type = ligands_seurat@meta.data[cell, "cell_type"]) %>%
+  group_by(ligand, cell_type) %>%
+  summarize(
+    prop_expressed = mean(expressed, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+receptor_expr_proportion <- as.data.frame(receptors_seurat@assays$RNA@counts > 0) %>%
+  rownames_to_column(var = "receptor") %>%
+  pivot_longer(
+    cols = -receptor,
+    names_to = "cell",
+    values_to = "expressed"
+  ) %>%
+  mutate(cell_type = receptors_seurat@meta.data[cell, "cell_type"]) %>%
+  group_by(receptor, cell_type) %>%
+  summarize(
+    prop_expressed = mean(expressed, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+df.net <- df.net %>%
+  left_join(ligand_expr_proportion, by = c("ligand" = "ligand", "source" = "cell_type")) %>%
+  rename(ligand_prop_expressed = prop_expressed) %>%
+  left_join(receptor_expr_proportion, by = c("receptor" = "receptor", "target" = "cell_type")) %>%
+  rename(receptor_prop_expressed = prop_expressed)
+
+df.net_filtered <- df.net %>%
+  filter(ligand_prop_expressed >= 0.1 & receptor_prop_expressed >= 0.1)
+
+
+```
+
+
 # 
 ```{r}
 # Ensure the function includes lig_expr and rec_expr as parameters if not done yet
@@ -179,12 +221,16 @@ p <- ggplot(dfnet_filter, aes(x = Interaction_Factor, y = Source_Target, size = 
        color = "Probability") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.5),
+        axis.ticks = element_line(),               # Add ticks for both axes
+        axis.ticks.length = unit(0.2, "cm"),       # Adjust tick length
         panel.background = element_rect(fill = "white", colour = "black"),
         panel.grid = element_blank(),
         panel.spacing = unit(0.5, "lines")) +
   scale_x_discrete(expand = c(0.1, 0.1)) +
   scale_y_discrete(expand = c(0.1, 0.1))
+
 p
+
 ```
 
 ```{r}
