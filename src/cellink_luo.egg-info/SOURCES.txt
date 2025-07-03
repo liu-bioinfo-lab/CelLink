@@ -2,7 +2,6 @@ LICENSE
 README.md
 pyproject.toml
 src/cellink/__init__ .py
-src/cellink/__init__.py
 src/cellink/metrics.py
 src/cellink/model.py
 src/cellink/utils.py
