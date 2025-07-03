@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from .utils import drop_low_variability_columns
 from .utils import graph_smoothing
 from .utils import cdist_correlation
+from .utils import cosine_distance
 import anndata as ad
 import scanpy as sc
 import scipy
@@ -58,6 +59,8 @@ class Cellink:
          self.arr2_unmatched_cell_id = []
          self.arr1_wrong_ct = []
          self.arr2_wrong_ct = []
+         self.arr1_wrong_correspondence = []
+         self.arr2_wrong_correspondence = []
          
          if 'cell_type' in self.full_ann1.obs.columns and 'cell_type' in self.full_ann2.obs.columns:
             print('Cell annotations are provided. Perform Iteratively OT!')
@@ -225,7 +228,7 @@ class Cellink:
 
     
     def alignment(self, wt1, wt2, n_neighbors = 10, lambd = 5e-3, matching_ratio = 1, reg = 5e-3, reg_m1 = (20, 0.1), reg_m2 = (0.1, 20), 
-                  numItermax = 1000, iterative = True, sparse = False, BOT = True, verbose = True):
+                  numItermax = 1000, metric = 'corr', iterative = True, sparse = False, BOT = True, verbose = True):
         """
         Perform cell-cell alignment (stage I and stage II).
 
@@ -251,6 +254,7 @@ class Cellink:
             Max number of iterations of sinkhorn algorithms
         iterative: bool
             If True, utilize iterative OT, otherwise only balanced OT. 
+        metric: str, default = 'corr', values: ['corr', 'cosine']
         
         Returns
         -------
@@ -300,30 +304,30 @@ class Cellink:
                     m12 = np.arange(arr1.shape[0])
                     m22 = np.arange(arr2.shape[0])
                 else:
-                    m11, m12, wrong_ct_arr1 = self.balanced_ot(arr1, arr2, direction = 1, lambd = lambd, matching_ratio = matching_ratio, numItermax = numItermax, sparse = sparse)
-                    m21, m22, wrong_ct_arr2 = self.balanced_ot(arr1, arr2, direction = 2, lambd = lambd, matching_ratio = matching_ratio, numItermax = numItermax, sparse = sparse)
+                    m11, m12, wrong_ct_arr1, wrong_correspondence1 = self.balanced_ot(arr1, arr2, direction = 1, lambd = lambd, matching_ratio = matching_ratio, numItermax = numItermax, metric = metric,  sparse = sparse)
+                    m21, m22, wrong_ct_arr2, wrong_correspondence2 = self.balanced_ot(arr1, arr2, direction = 2, lambd = lambd, matching_ratio = matching_ratio, numItermax = numItermax, metric = metric, sparse = sparse)
                     
                 if(iterative):
                     # stage II: unbalanced OT
                     if len(m12) > 0:
                         print(f"{len(m12)} cells from Modality X are unmatched in Phase I and are realigned in Phase II.")
-                        match_result_arr1, unmatched_cell_id_arr1, wrong_ct_all_arr1 = self.iterative_unbalanced_ot(arr1, arr2, bot_match_result = m11, ori_cell_id = m12, reg = reg, 
-                                                                                                                reg_m = reg_m1, numItermax = numItermax, direction = 1, sparse = sparse)
+                        match_result_arr1, unmatched_cell_id_arr1, wrong_ct_all_arr1, wrong_all_correspondence1 = self.iterative_unbalanced_ot(arr1, arr2, bot_match_result = m11, bot_unmatch_result = wrong_correspondence1, ori_cell_id = m12, reg = reg, reg_m = reg_m1, numItermax = numItermax, metric = metric, direction = 1, sparse = sparse)
                     else:
                         print(f"All cells from Modality X are matched in Phase I.")
                         match_result_arr1 = m11 
                         unmatched_cell_id_arr1 = m12
                         wrong_ct_all_arr1 = wrong_ct_arr1
+                        wrong_all_correspondence1 = wrong_correspondence1
                     
                     if len(m22) > 0:
                         print(f"{len(m22)} cells from Modality Y are unmatched in Phase I and are realigned in Phase II.")
-                        match_result_arr2, unmatched_cell_id_arr2, wrong_ct_all_arr2  = self.iterative_unbalanced_ot(arr1, arr2, bot_match_result = m21, ori_cell_id = m22, reg = reg, 
-                                                                                                                reg_m = reg_m2, numItermax = numItermax, direction = 2, sparse = sparse)
+                        match_result_arr2, unmatched_cell_id_arr2, wrong_ct_all_arr2, wrong_all_correspondence2  = self.iterative_unbalanced_ot(arr1, arr2, bot_match_result = m21, bot_unmatch_result = wrong_correspondence2, ori_cell_id = m22, reg = reg,reg_m = reg_m2, numItermax = numItermax, metric = metric, direction = 2, sparse = sparse)
                     else:
                         print(f"All cells from Modality Y are matched in Phase I.")
                         match_result_arr2 = m21 
                         unmatched_cell_id_arr2 = m22
                         wrong_ct_all_arr2 = wrong_ct_arr2
+                        wrong_all_correspondence2 = wrong_correspondence2
 
                     # stage III: domain transfer and visualization
                     if len(match_result_arr1) == 0 | len(match_result_arr2) == 0:
@@ -350,6 +354,9 @@ class Cellink:
 
                     self.arr1_wrong_ct.append(wrong_ct_all_arr1)
                     self.arr2_wrong_ct.append(wrong_ct_all_arr2)
+
+                    self.arr1_wrong_correspondence.append(wrong_all_correspondence1)
+                    self.arr2_wrong_correspondence.append(wrong_all_correspondence2)
                 
                 else:
                     if len(match_result_arr1) == 0 | len(match_result_arr2) == 0:
@@ -376,10 +383,16 @@ class Cellink:
 
                     self.arr1_wrong_ct.append(wrong_ct_arr1)
                     self.arr2_wrong_ct.append(wrong_ct_arr2)
+
+                    self.arr1_wrong_correspondence.append(wrong_correspondence1)
+                    self.arr2_wrong_correspondence.append(wrong_correspondence2)
                     
             else:
                 #print('Cell type annotations are NOT provided. One-time reciprocal UOT starts!')
-                dist = cdist_correlation(arr1, arr2)
+                if metric == 'corr':
+                    dist = cdist_correlation(arr1, arr2)
+                else:
+                    dist = cosine_distance(arr1, arr2)
                 a = np.ones(shape = (arr1.shape[0],)) 
                 b = np.ones(shape = (arr2.shape[0],))
                 #adaptive_weights = np.linspace(1.1, 1.5, 5)
@@ -406,11 +419,13 @@ class Cellink:
                 self.cell_correspondence_partition2.append(matched2_transport_map.T)
 
                 self.feature_imputation_partition1.append(arr1_impute)
-                self.feature_imputation_partition2.append(arr2_impute)
+                self.feature_imputation_partition2.append(arr2_impute) 
+
+                # no cell-type annotation, no wrong_correspondence
             
 
 
-    def balanced_ot(self, arr1, arr2, lambd = 5e-3, matching_ratio = 1, numItermax = 1000, direction = 1, sparse = False):
+    def balanced_ot(self, arr1, arr2, lambd = 5e-3, matching_ratio = 1, numItermax = 1000, metric = 'corr', direction = 1, sparse = False):
         """
         stage I of celLink: perform balanced optimal transport, filter out the matched cells and retain the unmatched cells.
 
@@ -437,7 +452,10 @@ class Cellink:
         ori_cell_id: list,
             Cell ids for unmatched cells
         """
-        dist = cdist_correlation(arr1, arr2)
+        if metric == 'corr':
+            dist = cdist_correlation(arr1, arr2)
+        else:
+            dist = cosine_distance(arr1, arr2)
 
         if sparse == True:
             row_ind, col_ind = linear_sum_assignment(dist)
@@ -451,13 +469,13 @@ class Cellink:
         source_ct = []
         predicted_ct = []
         match_result = {}
+        unmatch_result = {}
 
         if direction == 1:
             target_cell_types = self.arr2_shared_batch.obs['cell_type'] # change into self
             ori_cell_id = np.array(range(arr1.shape[0]))
             for i in range(ot_sink.shape[0]):
                 weights = ot_sink[i, :]
-                
                 weight_distribution = {}
                 for cell_type, weight in zip(target_cell_types, weights):
                     if cell_type in weight_distribution:
@@ -473,6 +491,8 @@ class Cellink:
 
                 if sct == pct:
                     match_result[i] = ot_sink[i,:]
+                else:
+                    unmatch_result[i] = ot_sink[i,:]
                     
             source_ct = np.array(source_ct)
             predicted_ct = np.array(predicted_ct)
@@ -480,7 +500,7 @@ class Cellink:
             ori_cell_id = np.array(ori_cell_id)[mismatches]
             wrong_ct = predicted_ct[mismatches]
 
-            return match_result, ori_cell_id, wrong_ct
+            return match_result, ori_cell_id, wrong_ct, unmatch_result
         
         elif direction == 2:
             target_cell_types = self.arr1_shared_batch.obs['cell_type'] # change into self
@@ -502,6 +522,8 @@ class Cellink:
 
                 if sct == pct:
                     match_result[i] = ot_sink[:, i]
+                else:
+                    unmatch_result[i] = ot_sink[:, i]
 
             source_ct = np.array(source_ct)
             predicted_ct = np.array(predicted_ct)
@@ -509,13 +531,13 @@ class Cellink:
             ori_cell_id = np.array(ori_cell_id)[mismatches]
             wrong_ct = predicted_ct[mismatches]
 
-            return match_result, ori_cell_id, wrong_ct
+            return match_result, ori_cell_id, wrong_ct, unmatch_result
         
         else:
             raise ValueError('Direction must be 1 or 2!')
                 
 
-    def iterative_unbalanced_ot(self, arr1, arr2, ori_cell_id, bot_match_result, reg = 5e-3, reg_m = (2, 0.1), numItermax = 1000, sparse = False, direction = 1):
+    def iterative_unbalanced_ot(self, arr1, arr2, ori_cell_id, bot_match_result, bot_unmatch_result, reg = 5e-3, reg_m = (2, 0.1), numItermax = 1000, metric = 'corr',  sparse = False, direction = 1):
         """
         stage II of celLink: perform iterative unbalanced optimal transport to correct alignments, filter out the matched cells and retain the unmatched cells.
 
@@ -549,8 +571,14 @@ class Cellink:
             continue_iter = True
             arr1_refine = arr1[ori_cell_id, :]
             match_result = bot_match_result
+            unmatch_result = bot_unmatch_result
+
             while(continue_iter):
                 iter_time += 1
+                if metric == 'corr':
+                    dist = cdist_correlation(arr1_refine, arr2)
+                else:
+                    dist = cosine_distance(arr1_refine, arr2)
                 dist = cdist_correlation(arr1_refine, arr2)
                 a = np.ones(shape = (arr1_refine.shape[0],)) 
                 b = np.ones(shape = (arr2.shape[0],)) 
@@ -582,7 +610,8 @@ class Cellink:
                     # store the transport map of matched cells by dictionary
                     if sct == pct:
                         match_result[ori_cell_id[i]] = ot_fast[i, :]
-
+                    else:
+                        unmatch_result[ori_cell_id[i]] = ot_fast[i, :]
                 source_ct = np.array(source_ct)
                 predicted_ct = np.array(predicted_ct)
                 mismatches = source_ct != predicted_ct
@@ -597,7 +626,7 @@ class Cellink:
                     wrong_ct = []
                     print(f'iterative unbalanced optimal transport converges after {iter_time} iterations iterations with cell-type matching accuracy {ct_acc}%! \n')
                     print(f'There are {len(ori_cell_id)} unmatched samples and {len(match_result)} matched samples in data{direction}!\n')
-                    return match_result, ori_cell_id, wrong_ct
+                    return match_result, ori_cell_id, wrong_ct, unmatch_result
                 elif num_mis / num >= 0.99: 
                     ori_cell_id = np.array(ori_cell_id)[mismatches]
                     wrong_ct = predicted_ct[mismatches]
@@ -605,7 +634,7 @@ class Cellink:
                     continue_iter = False
                     print(f'iterative unbalanced optimal transport converges after {iter_time} iterations with cell-type matching accuracy {ct_acc}%! \n')
                     print(f'There are {len(ori_cell_id)} unmatched samples and {len(match_result)} matched samples in data{direction}!\n')
-                    return match_result, ori_cell_id, wrong_ct
+                    return match_result, ori_cell_id, wrong_ct, unmatch_result
                 else:
                     ori_cell_id = np.array(ori_cell_id)[mismatches]
                     arr1_refine = arr1[ori_cell_id, :]
@@ -614,10 +643,15 @@ class Cellink:
             continue_iter = True
             arr2_refine = arr2[ori_cell_id, :]
             match_result = bot_match_result
+            unmatch_result = bot_unmatch_result
 
             while(continue_iter):
                 iter_time += 1
-                dist = cdist_correlation(arr1, arr2_refine)
+                if metric == 'corr':
+                    dist = cdist_correlation(arr1, arr2_refine)
+                else:
+                    dist = cosine_distance(arr1, arr2_refine)
+                #dist = cdist_correlation(arr1, arr2_refine)
                 a = np.ones(shape = (arr1.shape[0],)) 
                 b = np.ones(shape = (arr2_refine.shape[0],)) 
 
@@ -648,6 +682,8 @@ class Cellink:
 
                     if sct == pct:
                         match_result[ori_cell_id[i]] = ot_fast[:, i]
+                    else:
+                        unmatch_result[ori_cell_id[i]] = ot_fast[:, i]
 
                 source_ct = np.array(source_ct)
                 predicted_ct = np.array(predicted_ct)
@@ -664,7 +700,7 @@ class Cellink:
                     wrong_ct = []
                     print(f'iterative unbalanced optimal transport converges after {iter_time} iterations with cell-type matching accuracy {ct_acc}%! \n')
                     print(f'There are {len(ori_cell_id)} unmatched samples and {len(match_result)} matched samples in data{direction}!\n')
-                    return match_result, ori_cell_id, wrong_ct
+                    return match_result, ori_cell_id, wrong_ct, unmatch_result
                 elif num_mis / num >= 0.99: 
                     ori_cell_id = np.array(ori_cell_id)[mismatches]
                     wrong_ct = predicted_ct[mismatches]
@@ -672,7 +708,7 @@ class Cellink:
                     continue_iter = False
                     print(f'iterative unbalanced optimal transport converges after {iter_time} iterations with cell-type matching accuracy {ct_acc}%! \n')
                     print(f'There are {len(ori_cell_id)} unmatched samples and {len(match_result)} matched samples in data{direction}!\n')
-                    return match_result, ori_cell_id, wrong_ct
+                    return match_result, ori_cell_id, wrong_ct, unmatch_result
                 else:
                     ori_cell_id = np.array(ori_cell_id)[mismatches]
                     arr2_refine = arr2[ori_cell_id,:]
