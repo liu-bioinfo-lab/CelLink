@@ -114,6 +114,42 @@ def cdist_correlation(arr1, arr2):
 
     return 1 -  arr1 @ arr2.T
 
+def cosine_distance(arr1, arr2):
+    """
+    Calculate pairwise cosine distance between arr1 and arr2.
+    
+    Parameters
+    ----------
+    arr1 : np.array of shape (n_samples1, n_features)
+        First dataset (e.g., predicted gene expressions).
+    arr2 : np.array of shape (n_samples2, n_features)
+        Second dataset (e.g., target gene expressions).
+    
+    Returns
+    -------
+    np.array of shape (n_samples1, n_samples2)
+        The (i, j)-th entry is cosine distance between 
+        i-th row of arr1 and j-th row of arr2.
+        
+        Values range from 0 (identical direction) to 2 (opposite direction).
+    """
+    n, p = arr1.shape
+    m, p2 = arr2.shape
+    assert p2 == p, f"Feature dimensions must match: {p} vs {p2}"
+    
+    # Normalize each row to unit length (L2 normalization)
+    # Note: Unlike correlation, we do NOT center (subtract mean)
+    arr1_norm = (arr1.T / np.sqrt(1e-8 + np.sum(arr1 ** 2, axis=1))).T
+    arr2_norm = (arr2.T / np.sqrt(1e-8 + np.sum(arr2 ** 2, axis=1))).T
+    
+    # Compute cosine similarity matrix
+    # arr1_norm @ arr2_norm.T gives cosine similarities
+    cosine_similarity = arr1_norm @ arr2_norm.T
+    
+    # Convert to distance: 1 - cosine_similarity
+    return 1.0 - cosine_similarity
+
+
 
 
     

@@ -33,7 +33,7 @@ class Cellink:
          if scipy.sparse.issparse(shared_ann1.X):
              shared_ann1.X = shared_ann1.X.toarray()
          if scipy.sparse.issparse(shared_ann2.X):
-             shared_ann1.X = shared_ann2.X.toarray()
+             shared_ann2.X = shared_ann2.X.toarray()
     
          self.full_ann1 = full_ann1
          self.full_ann2 = full_ann2
