@@ -27,7 +27,7 @@ A tutorial on integrating scRNA-seq and CODEX datasets from donor HPAP023 is pro
 
 ## Citation
 If you use Cellink in your research, please kindly cite our paper using the following reference:
-[Xin Luo et al. CelLink: Integrate single-cell multi-omics data with few linked features and imbalanced cell populations, Biorxiv 2024](https://doi.org/10.1101/2024.11.08.622745).
+[Xin Luo et al. CelLink: Integrate single-cell multi-omics data with few linked features and imbalanced cell populations, Nucleic Acids Research 2025](https://doi.org/10.1093/nar/gkaf1270).
 
 ## License
 This project is licensed under the GNU General Public License v3.0. For more information, see the [LICENSE](LICENSE) file in this repository.
